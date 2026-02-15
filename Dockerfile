@@ -1,0 +1,56 @@
+FROM composer:2 AS vendor
+
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --prefer-dist \
+    --optimize-autoloader
+
+FROM php:8.4-fpm-alpine
+
+WORKDIR /var/www/html
+
+RUN apk add --no-cache \
+    bash \
+    fcgi \
+    icu-dev \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    libwebp-dev \
+    freetype-dev \
+    libzip-dev \
+    oniguruma-dev \
+    tzdata \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-install -j"$(nproc)" \
+      bcmath \
+      exif \
+      gd \
+      intl \
+      pdo_mysql \
+      zip \
+    && apk del --no-cache \
+      icu-dev \
+      libpng-dev \
+      libjpeg-turbo-dev \
+      libwebp-dev \
+      freetype-dev \
+      libzip-dev \
+      oniguruma-dev
+
+COPY --from=vendor /app/vendor ./vendor
+COPY . .
+
+RUN cp .env.example .env || true \
+    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+EXPOSE 9000
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["php-fpm", "-F"]
