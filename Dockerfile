@@ -1,60 +1,33 @@
-FROM composer:2 AS vendor
+FROM php:8.3-fpm
 
-WORKDIR /app
-COPY composer.json composer.lock ./
-RUN composer install \
-    --no-dev \
-    --no-interaction \
-    --prefer-dist \
-    --optimize-autoloader \
-    --no-scripts
-
-FROM php:8.4-fpm-alpine
-
-WORKDIR /var/www/html
-
-RUN apk add --no-cache \
-    bash \
-    fcgi \
-    tzdata \
-    icu-libs \
-    libpng \
-    libjpeg-turbo \
-    libwebp \
-    freetype \
-    libzip \
-    libpq \
-    oniguruma \
-    && apk add --no-cache --virtual .build-deps \
-    icu-dev \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     libpng-dev \
-    libjpeg-turbo-dev \
-    libwebp-dev \
-    freetype-dev \
-    libzip-dev \
-    oniguruma-dev \
-    postgresql-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j"$(nproc)" \
-      bcmath \
-      exif \
-      gd \
-      intl \
-      pdo_pgsql \
-      zip \
-    && apk del .build-deps
+    libonig-dev \
+    libxml2-dev \
+    libicu-dev \
+    libpq-dev \
+    zip \
+    unzip \
+    git \
+    curl
 
-COPY --from=vendor /app/vendor ./vendor
+# Install PHP extensions
+RUN docker-php-ext-install pdo_pgsql pgsql intl gd
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www
+
 COPY . .
 
-RUN cp .env.example .env || true \
-    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache \
-    && chown -R www-data:www-data storage bootstrap/cache
+RUN composer install --no-dev --optimize-autoloader
 
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN php artisan config:cache || true
+RUN php artisan route:cache || true
+RUN php artisan view:cache || true
 
-EXPOSE 80
+EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["sh", "-c", "php artisan serve --host=0.0.0.0 --port=${PORT:-80}"]
+CMD ["php-fpm"]
