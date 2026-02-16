@@ -16,6 +16,16 @@ WORKDIR /var/www/html
 RUN apk add --no-cache \
     bash \
     fcgi \
+    tzdata \
+    icu-libs \
+    libpng \
+    libjpeg-turbo \
+    libwebp \
+    freetype \
+    libzip \
+    libpq \
+    oniguruma \
+    && apk add --no-cache --virtual .build-deps \
     icu-dev \
     libpng-dev \
     libjpeg-turbo-dev \
@@ -24,7 +34,6 @@ RUN apk add --no-cache \
     libzip-dev \
     oniguruma-dev \
     postgresql-dev \
-    tzdata \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j"$(nproc)" \
       bcmath \
@@ -33,15 +42,7 @@ RUN apk add --no-cache \
       intl \
       pdo_pgsql \
       zip \
-    && apk del --no-cache \
-      icu-dev \
-      libpng-dev \
-      libjpeg-turbo-dev \
-      libwebp-dev \
-      freetype-dev \
-      libzip-dev \
-      oniguruma-dev \
-      postgresql-dev
+    && apk del .build-deps
 
 COPY --from=vendor /app/vendor ./vendor
 COPY . .
