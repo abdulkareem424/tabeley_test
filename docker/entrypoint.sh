@@ -11,7 +11,7 @@ php artisan key:generate --force --no-interaction || true
 php artisan storage:link || true
 
 if [ "${RUN_MIGRATIONS}" = "true" ]; then
-  php artisan migrate --force --no-interaction
+  php artisan migrate --force --no-interaction || true
 fi
 
 php artisan config:cache || true
