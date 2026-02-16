@@ -23,4 +23,4 @@ RUN composer install --no-dev --optimize-autoloader
 EXPOSE 80
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["php", "-S", "0.0.0.0:80", "-t", "public"]
+CMD ["php", "-S", "0.0.0.0:80", "-t", "public", "public/index.php"]
