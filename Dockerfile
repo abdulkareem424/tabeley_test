@@ -30,4 +30,4 @@ RUN php artisan view:cache || true
 
 EXPOSE 8080
 
-CMD ["php-fpm"]
+CMD php -S 0.0.0.0:80 -t public
