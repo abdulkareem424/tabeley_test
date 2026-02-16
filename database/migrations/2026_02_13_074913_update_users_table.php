@@ -13,9 +13,9 @@ return new class extends Migration
             $table->dropColumn('name');
 
             // نضيف الحقول تبع مشروعنا
-            $table->string('first_name')->after('id');
-            $table->string('last_name')->after('first_name');
-            $table->string('phone')->unique()->after('email');
+            $table->string('first_name');
+            $table->string('last_name');
+            $table->string('phone')->unique();
         });
     }
 

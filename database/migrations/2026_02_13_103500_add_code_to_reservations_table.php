@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('reservations', function (Blueprint $table) {
-            $table->string('code', 8)->unique()->after('id');
+            $table->string('code', 8)->unique();
         });
     }
 

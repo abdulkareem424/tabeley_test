@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->unsignedSmallInteger('strike_count')->default(0)->after('password');
-            $table->timestamp('blocked_until')->nullable()->after('strike_count');
-            $table->boolean('blocked_permanent')->default(false)->after('blocked_until');
+            $table->unsignedSmallInteger('strike_count')->default(0);
+            $table->timestamp('blocked_until')->nullable();
+            $table->boolean('blocked_permanent')->default(false);
         });
     }
 

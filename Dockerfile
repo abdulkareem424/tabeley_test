@@ -23,6 +23,7 @@ RUN apk add --no-cache \
     freetype-dev \
     libzip-dev \
     oniguruma-dev \
+    postgresql-dev \
     tzdata \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j"$(nproc)" \
@@ -30,7 +31,7 @@ RUN apk add --no-cache \
       exif \
       gd \
       intl \
-      pdo_mysql \
+      pdo_pgsql \
       zip \
     && apk del --no-cache \
       icu-dev \
@@ -39,7 +40,8 @@ RUN apk add --no-cache \
       libwebp-dev \
       freetype-dev \
       libzip-dev \
-      oniguruma-dev
+      oniguruma-dev \
+      postgresql-dev
 
 COPY --from=vendor /app/vendor ./vendor
 COPY . .

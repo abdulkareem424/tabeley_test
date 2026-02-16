@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('venues', function (Blueprint $table) {
-            $table->boolean('is_active')->default(true)->after('lng');
+            $table->boolean('is_active')->default(true);
         });
     }
 
