@@ -18,7 +18,6 @@ services:
       DB_USERNAME: ${DB_USERNAME:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-secret}
       RUN_MIGRATIONS: "true"
-    command: ["php-fpm", "-F"]
     depends_on:
       - db
     volumes:
