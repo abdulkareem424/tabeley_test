@@ -1,4 +1,4 @@
-FROM php:8.3-cli
+FROM php:8.3-fpm
 
 RUN apt-get update && apt-get install -y \
     libpq-dev \
@@ -20,7 +20,9 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 RUN composer install --no-dev --optimize-autoloader
 
-EXPOSE 80
+RUN chown -R www-data:www-data storage bootstrap/cache
+
+EXPOSE 9000
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["php", "-S", "0.0.0.0:80", "-t", "public", "public/index.php"]
+CMD ["php-fpm"]
