@@ -2,13 +2,9 @@ FROM php:8.3-apache
 
 RUN apt-get update && apt-get install -y \
     libpq-dev \
-    libpq5 \
     libicu-dev \
-    libicu72 \
     libpng-dev \
-    libpng16-16 \
     libzip-dev \
-    libzip4 \
     unzip \
     git \
     curl \
