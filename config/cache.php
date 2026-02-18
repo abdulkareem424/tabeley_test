@@ -65,7 +65,7 @@ return [
             ],
             'servers' => [
                 [
-                    'host' => env('MEMCACHED_HOST', '127.0.0.1'),
+                    'host' => env('MEMCACHED_HOST', 'https://tabeleymvp2-8b111c91640a.hosted.ghaymah.systems'),
                     'port' => env('MEMCACHED_PORT', 11211),
                     'weight' => 100,
                 ],
