@@ -1,29 +1,36 @@
-FROM php:8.3-apache
+FROM php:8.3-fpm
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     libicu-dev \
     libpng-dev \
     libzip-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
     unzip \
     git \
     curl \
-    zip
+    zip \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN docker-php-ext-install pdo_pgsql pgsql intl gd zip
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j"$(nproc)" pdo_pgsql pgsql intl gd zip
 
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-WORKDIR /var/www/html
+WORKDIR /var/www
+
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --prefer-dist --no-interaction --no-scripts --optimize-autoloader
 
 COPY . .
 
-RUN composer install --no-dev --optimize-autoloader
+RUN chown -R www-data:www-data storage bootstrap/cache \
+    && chmod -R ug+rw storage bootstrap/cache \
+    && chmod +x docker/entrypoint.sh
 
-RUN chown -R www-data:www-data storage bootstrap/cache
+ENTRYPOINT ["docker/entrypoint.sh"]
 
-RUN a2enmod rewrite
+EXPOSE 9000
 
-EXPOSE 80
-
-CMD ["apache2-foreground"]
+CMD ["php-fpm"]

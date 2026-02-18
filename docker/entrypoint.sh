@@ -33,7 +33,9 @@ set_env APP_DEBUG "${APP_DEBUG}"
 set_env APP_URL "${APP_URL}"
 
 php artisan config:clear || true
-php artisan key:generate --force --no-interaction || true
+if ! grep -q "^APP_KEY=base64:" .env; then
+  php artisan key:generate --force --no-interaction || true
+fi
 php artisan storage:link || true
 
 if [ "${RUN_MIGRATIONS}" = "true" ]; then
