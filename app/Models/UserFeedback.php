@@ -10,6 +10,7 @@ class UserFeedback extends Model
     use HasFactory;
 
     protected $table = 'user_feedback';
+    const UPDATED_AT = null;
 
     protected $fillable = [
         'user_id',
