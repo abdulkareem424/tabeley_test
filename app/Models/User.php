@@ -12,11 +12,15 @@ use App\Models\Reservation;
 use Illuminate\Support\Carbon;
 use App\Models\Notification;
 use App\Models\UserFeedback;
+use App\Models\UserBlock;
+use Illuminate\Support\Facades\Schema;
 
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
+    protected static ?bool $hasLegacyBlockColumns = null;
+    protected static ?bool $hasUserBlocksTable = null;
 
     /**
      * The attributes that are mass assignable.
@@ -86,14 +90,53 @@ class User extends Authenticatable
 
     public function isBlocked(): bool
     {
-        if ($this->blocked_permanent) {
-            return true;
+        if ($this->hasLegacyBlockColumns()) {
+            if ($this->blocked_permanent) {
+                return true;
+            }
+
+            if ($this->blocked_until && Carbon::parse($this->blocked_until)->isFuture()) {
+                return true;
+            }
+
+            return false;
         }
 
-        if ($this->blocked_until && Carbon::parse($this->blocked_until)->isFuture()) {
-            return true;
+        if (! $this->hasUserBlocksTable()) {
+            return false;
         }
 
-        return false;
+        return UserBlock::query()
+            ->where('user_id', $this->id)
+            ->where('is_active', true)
+            ->where(function ($q) {
+                $q->whereNull('blocked_until')
+                    ->orWhere('blocked_until', '>', now());
+            })
+            ->exists();
+    }
+
+    private function hasLegacyBlockColumns(): bool
+    {
+        if (self::$hasLegacyBlockColumns !== null) {
+            return self::$hasLegacyBlockColumns;
+        }
+
+        self::$hasLegacyBlockColumns = Schema::hasColumn('users', 'blocked_until')
+            && Schema::hasColumn('users', 'blocked_permanent')
+            && Schema::hasColumn('users', 'strike_count');
+
+        return self::$hasLegacyBlockColumns;
+    }
+
+    private function hasUserBlocksTable(): bool
+    {
+        if (self::$hasUserBlocksTable !== null) {
+            return self::$hasUserBlocksTable;
+        }
+
+        self::$hasUserBlocksTable = Schema::hasTable('user_blocks');
+
+        return self::$hasUserBlocksTable;
     }
 }

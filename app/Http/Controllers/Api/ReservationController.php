@@ -12,10 +12,13 @@ use App\Models\ReservationTableAssignment;
 use App\Models\VenueTable;
 use App\Models\ReservationReminder;
 use App\Models\Venue;
+use App\Models\UserBlock;
+use App\Models\UserStrike;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ReservationController extends Controller
 {
@@ -393,7 +396,7 @@ class ReservationController extends Controller
     private function getPricingRule(?Venue $venue): ?PricingRule
     {
         if (! $venue) {
-            return PricingRule::where('scope', 'global')->where('is_active', true)->latest('id')->first();
+            return PricingRule::where('scope', 'global_type')->where('is_active', true)->latest('id')->first();
         }
 
         $venueRule = PricingRule::where('scope', 'venue')
@@ -406,7 +409,7 @@ class ReservationController extends Controller
             return $venueRule;
         }
 
-        $typeRule = PricingRule::where('scope', 'type')
+        $typeRule = PricingRule::where('scope', 'global_type')
             ->where('venue_type', $venue->type)
             ->where('is_active', true)
             ->latest('id')
@@ -416,7 +419,7 @@ class ReservationController extends Controller
             return $typeRule;
         }
 
-        return PricingRule::where('scope', 'global')->where('is_active', true)->latest('id')->first();
+        return PricingRule::where('scope', 'global_type')->where('is_active', true)->latest('id')->first();
     }
 
     private function findAvailableTable(Reservation $reservation, bool $includePending, bool $lockRows = false): ?VenueTable
@@ -501,6 +504,7 @@ class ReservationController extends Controller
 
         return ReservationReminder::create([
             'reservation_id' => $reservation->id,
+            'user_id' => $reservation->customer_id,
             'send_at' => $sendAt,
             'sent_at' => null,
         ]);
@@ -563,10 +567,11 @@ class ReservationController extends Controller
     {
         Notification::create([
             'user_id' => $reservation->customer_id,
-            'type' => $type,
+            'type' => 'reservation_status',
             'title' => $title,
             'body' => $body,
             'data_json' => [
+                'event' => $type,
                 'reservation_id' => $reservation->id,
                 'venue_id' => $reservation->venue_id,
                 'status' => $reservation->status,
@@ -596,17 +601,80 @@ class ReservationController extends Controller
             return;
         }
 
-        $customer->strike_count = $customer->strike_count + 1;
+        if (Schema::hasColumn('users', 'strike_count')
+            && Schema::hasColumn('users', 'blocked_until')
+            && Schema::hasColumn('users', 'blocked_permanent')) {
+            $customer->strike_count = $customer->strike_count + 1;
 
-        if ($customer->strike_count >= 9) {
-            $customer->blocked_permanent = true;
-        } elseif ($customer->strike_count >= 6) {
-            $customer->blocked_until = now()->addDays(30);
-        } elseif ($customer->strike_count >= 3) {
-            $customer->blocked_until = now()->addDays(7);
+            if ($customer->strike_count >= 9) {
+                $customer->blocked_permanent = true;
+            } elseif ($customer->strike_count >= 6) {
+                $customer->blocked_until = now()->addDays(30);
+            } elseif ($customer->strike_count >= 3) {
+                $customer->blocked_until = now()->addDays(7);
+            }
+
+            $customer->save();
+            return;
         }
 
-        $customer->save();
+        if (! Schema::hasTable('user_strikes') || ! Schema::hasTable('user_blocks')) {
+            return;
+        }
+
+        UserStrike::create([
+            'user_id' => $customer->id,
+            'type' => 'no_show',
+            'created_at' => now(),
+        ]);
+
+        $strikeCount = UserStrike::query()
+            ->where('user_id', $customer->id)
+            ->where('type', 'no_show')
+            ->count();
+
+        UserBlock::query()
+            ->where('user_id', $customer->id)
+            ->where('is_active', true)
+            ->update(['is_active' => false]);
+
+        if ($strikeCount >= 9) {
+            UserBlock::create([
+                'user_id' => $customer->id,
+                'level' => 'permanent',
+                'reason' => 'Exceeded no-show threshold',
+                'blocked_until' => null,
+                'created_by' => 'system',
+                'is_active' => true,
+                'created_at' => now(),
+            ]);
+            return;
+        }
+
+        if ($strikeCount >= 6) {
+            UserBlock::create([
+                'user_id' => $customer->id,
+                'level' => 'month',
+                'reason' => 'Exceeded no-show threshold',
+                'blocked_until' => now()->addDays(30),
+                'created_by' => 'system',
+                'is_active' => true,
+                'created_at' => now(),
+            ]);
+            return;
+        }
+
+        if ($strikeCount >= 3) {
+            UserBlock::create([
+                'user_id' => $customer->id,
+                'level' => 'week',
+                'reason' => 'Exceeded no-show threshold',
+                'blocked_until' => now()->addDays(7),
+                'created_by' => 'system',
+                'is_active' => true,
+                'created_at' => now(),
+            ]);
+        }
     }
 
     private function canCancel(Reservation $reservation): bool

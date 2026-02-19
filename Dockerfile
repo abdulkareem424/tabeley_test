@@ -1,36 +1,39 @@
-FROM php:8.3-fpm
+FROM php:8.2-cli
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    libicu-dev \
-    libpng-dev \
-    libzip-dev \
-    libjpeg62-turbo-dev \
-    libfreetype6-dev \
-    unzip \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     git \
     curl \
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
     zip \
+    unzip \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" pdo_pgsql pgsql intl gd zip
+# Install PHP extensions
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
 
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Install composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# Set working directory
 WORKDIR /var/www
 
-COPY composer.json composer.lock ./
-RUN composer install --no-dev --prefer-dist --no-interaction --no-scripts --optimize-autoloader
+# Copy existing application directory contents
+COPY . /var/www
 
-COPY . .
+# Install dependencies
+RUN composer install --no-interaction --no-dev --optimize-autoloader
 
-RUN chown -R www-data:www-data storage bootstrap/cache \
-    && chmod -R ug+rw storage bootstrap/cache \
-    && chmod +x docker/entrypoint.sh
+# Set permissions
+RUN chown -R www-data:www-data /var/www \
+    && chmod -R 755 /var/www/storage \
+    && chmod -R 755 /var/www/bootstrap/cache
 
-ENTRYPOINT ["docker/entrypoint.sh"]
+# Expose port 8000
+EXPOSE 8000
 
-EXPOSE 9000
-
-CMD ["php-fpm"]
+# Start Laravel development server
+CMD php artisan serve --host=0.0.0.0 --port=8000

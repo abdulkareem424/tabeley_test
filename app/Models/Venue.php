@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\Schema;
 use App\Models\Reservation;
 use App\Models\SeatingArea;
 use App\Models\VenueTable;
+use App\Models\Offer;
+use App\Models\VenueImage;
+use App\Models\Amenity;
 
 class Venue extends Model
 {
@@ -29,6 +32,7 @@ class Venue extends Model
         'amenities',
         'image_urls',
         'offers',
+        'created_by_admin_id',
     ];
 
     protected $casts = [
@@ -79,5 +83,20 @@ class Venue extends Model
     public function tables()
     {
         return $this->hasMany(VenueTable::class);
+    }
+
+    public function images()
+    {
+        return $this->hasMany(VenueImage::class);
+    }
+
+    public function offersRelation()
+    {
+        return $this->hasMany(Offer::class);
+    }
+
+    public function amenitiesRelation()
+    {
+        return $this->belongsToMany(Amenity::class, 'venue_amenities', 'venue_id', 'amenity_id');
     }
 }

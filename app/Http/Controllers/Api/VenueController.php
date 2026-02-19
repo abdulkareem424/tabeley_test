@@ -3,13 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Amenity;
+use App\Models\Offer;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Venue;
+use App\Models\VenueImage;
 use App\Models\VenueTable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class VenueController extends Controller
@@ -23,19 +27,8 @@ class VenueController extends Controller
             'per_page' => 'nullable|integer|min:1|max:50',
         ]);
 
-        $query = Venue::query()
-            ->select([
-                'id',
-                'name',
-                'type',
-                'description',
-                'address_text',
-                'lat',
-                'lng',
-                'amenities',
-                'image_urls',
-                'offers',
-            ]);
+        $query = Venue::query()->select($this->venueSelectColumns());
+        $this->applyVenueRelations($query);
 
         $query->where('is_active', true);
 
@@ -50,9 +43,12 @@ class VenueController extends Controller
         $perPage = $validated['per_page'] ?? 10;
 
         $paginator = $query->orderByDesc('id')->paginate($perPage);
+        $data = collect($paginator->items())
+            ->map(fn (Venue $venue) => $this->serializeVenue($venue))
+            ->values();
 
         return response()->json([
-            'data' => $paginator->items(),
+            'data' => $data,
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'per_page' => $paginator->perPage(),
@@ -66,23 +62,14 @@ class VenueController extends Controller
     public function show(int $id)
     {
         $venue = Venue::query()
-            ->select([
-                'id',
-                'name',
-                'type',
-                'description',
-                'address_text',
-                'lat',
-                'lng',
-                'amenities',
-                'image_urls',
-                'offers',
-            ])
+            ->select($this->venueSelectColumns())
             ->where('is_active', true)
             ->findOrFail($id);
 
+        $venue->loadMissing($this->venueRelations());
+
         return response()->json([
-            'data' => $venue,
+            'data' => $this->serializeVenue($venue),
         ]);
     }
 
@@ -111,24 +98,31 @@ class VenueController extends Controller
             'offers.*.is_active' => 'nullable|boolean',
         ]);
 
+        $offers = $this->sanitizeOffers($validated['offers'] ?? []);
+        $imageUrls = $this->appendUploadedImages($request, $validated['image_urls'] ?? []);
         $venue = Venue::create([
             $ownerColumn => $user->id,
             'name' => $validated['name'],
             'type' => $validated['type'],
             'description' => $validated['description'] ?? null,
             'address_text' => $validated['address_text'] ?? null,
-            'lat' => $validated['lat'] ?? null,
-            'lng' => $validated['lng'] ?? null,
+            'lat' => $validated['lat'] ?? 0,
+            'lng' => $validated['lng'] ?? 0,
             'is_active' => true,
             'phone' => $validated['phone'] ?? null,
-            'amenities' => $validated['amenities'] ?? [],
-            'image_urls' => $validated['image_urls'] ?? [],
-            'offers' => $this->sanitizeOffers($validated['offers'] ?? []),
+            ...$this->inlineVenuePayload($validated['amenities'] ?? [], $imageUrls, $offers),
         ]);
+        $this->syncStructuredVenueData(
+            $venue,
+            $validated['amenities'] ?? [],
+            $imageUrls,
+            $offers
+        );
+        $venue = $this->reloadVenueForResponse($venue->id);
 
         return response()->json([
             'message' => 'Venue created successfully',
-            'venue' => $venue,
+            'venue' => $this->serializeVenue($venue),
         ], 201);
     }
 
@@ -143,25 +137,15 @@ class VenueController extends Controller
 
         $query = Venue::query()
             ->select([
-                'id',
                 DB::raw($ownerColumn . ' as vendor_id'),
-                'name',
-                'type',
-                'description',
-                'address_text',
-                'lat',
-                'lng',
-                'is_active',
-                'phone',
-                'amenities',
-                'image_urls',
-                'offers',
+                ...$this->venueSelectColumns(),
             ])
             ->withCount([
                 'tables as table_count' => function ($q) {
                     $q->where('is_active', true);
                 },
             ]);
+        $this->applyVenueRelations($query);
 
         if (! empty($validated['search'])) {
             $query->where('name', 'like', '%' . $validated['search'] . '%');
@@ -169,9 +153,12 @@ class VenueController extends Controller
 
         $perPage = $validated['per_page'] ?? 20;
         $paginator = $query->orderByDesc('id')->paginate($perPage);
+        $data = collect($paginator->items())
+            ->map(fn (Venue $venue) => $this->serializeVenue($venue, true))
+            ->values();
 
         return response()->json([
-            'data' => $paginator->items(),
+            'data' => $data,
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'per_page' => $paginator->perPage(),
@@ -225,7 +212,7 @@ class VenueController extends Controller
                     'last_name' => 'User',
                     'email' => $validated['vendor_email'],
                     'phone' => $validated['vendor_phone'],
-                    'password' => Hash::make($validated['vendor_password']),
+                    'password_hash' => Hash::make($validated['vendor_password']),
                 ]);
                 $vendor->roles()->syncWithoutDetaching([$vendorRole->id]);
                 $vendorId = $vendor->id;
@@ -245,6 +232,7 @@ class VenueController extends Controller
             $ownerColumn = Venue::ownerColumn();
             $imageUrls = $validated['image_urls'] ?? [];
             $imageUrls = $this->appendUploadedImages($request, $imageUrls);
+            $offers = $this->sanitizeOffers($validated['offers'] ?? []);
 
             $venue = Venue::create([
                 $ownerColumn => $vendorId,
@@ -252,25 +240,28 @@ class VenueController extends Controller
                 'type' => $validated['type'],
                 'description' => $validated['description'] ?? null,
                 'address_text' => $validated['address_text'] ?? null,
-                'lat' => $validated['lat'] ?? null,
-                'lng' => $validated['lng'] ?? null,
+                'lat' => $validated['lat'] ?? 0,
+                'lng' => $validated['lng'] ?? 0,
                 'is_active' => $validated['is_active'] ?? true,
                 'phone' => $validated['phone'] ?? null,
-                'amenities' => $validated['amenities'] ?? [],
-                'image_urls' => $imageUrls,
-                'offers' => $this->sanitizeOffers($validated['offers'] ?? []),
+                ...$this->inlineVenuePayload($validated['amenities'] ?? [], $imageUrls, $offers),
             ]);
+            $this->syncStructuredVenueData(
+                $venue,
+                $validated['amenities'] ?? [],
+                $imageUrls,
+                $offers
+            );
 
             $this->syncVenueTables($venue, (int) ($validated['table_count'] ?? 4));
         });
+        $venue = $this->reloadVenueForResponse($venue->id);
 
         return response()->json([
             'message' => 'Venue created successfully',
-            'venue' => $venue->loadCount([
-                'tables as table_count' => function ($q) {
-                    $q->where('is_active', true);
-                },
-            ]),
+            'venue' => $this->serializeVenue($venue->loadCount([
+                'tables as table_count' => fn ($q) => $q->where('is_active', true),
+            ]), true),
         ], 201);
     }
 
@@ -307,26 +298,62 @@ class VenueController extends Controller
                 $validated['offers'] = $this->sanitizeOffers($validated['offers'] ?? []);
             }
 
-            $baseImageUrls = array_key_exists('image_urls', $validated)
-                ? ($validated['image_urls'] ?? [])
-                : ($venue->image_urls ?? []);
-            $validated['image_urls'] = $this->appendUploadedImages($request, $baseImageUrls);
+            $hasAmenityInput = array_key_exists('amenities', $validated);
+            $hasOfferInput = array_key_exists('offers', $validated);
+            $hasImageInput = array_key_exists('image_urls', $validated) || $request->hasFile('images');
+            $resolvedImageUrls = $hasImageInput
+                ? $this->appendUploadedImages(
+                    $request,
+                    array_key_exists('image_urls', $validated)
+                        ? ($validated['image_urls'] ?? [])
+                        : $this->resolveImageUrls($venue)
+                )
+                : null;
 
-            $venue->fill($validated);
+            $payload = collect($validated)->only([
+                'vendor_id',
+                'name',
+                'type',
+                'description',
+                'address_text',
+                'lat',
+                'lng',
+                'is_active',
+                'phone',
+            ])->all();
+
+            if ($this->hasInlineVenueArrays()) {
+                if ($hasAmenityInput) {
+                    $payload['amenities'] = $validated['amenities'] ?? [];
+                }
+                if ($hasOfferInput) {
+                    $payload['offers'] = $validated['offers'] ?? [];
+                }
+                if ($hasImageInput) {
+                    $payload['image_urls'] = $resolvedImageUrls ?? [];
+                }
+            }
+
+            $venue->fill($payload);
             $venue->save();
+            $this->syncStructuredVenueData(
+                $venue,
+                $hasAmenityInput ? ($validated['amenities'] ?? []) : null,
+                $hasImageInput ? ($resolvedImageUrls ?? []) : null,
+                $hasOfferInput ? ($validated['offers'] ?? []) : null
+            );
 
             if (array_key_exists('table_count', $validated)) {
                 $this->syncVenueTables($venue, (int) $validated['table_count']);
             }
         });
+        $venue = $this->reloadVenueForResponse($venue->id)->loadCount([
+            'tables as table_count' => fn ($q) => $q->where('is_active', true),
+        ]);
 
         return response()->json([
             'message' => 'Venue updated successfully',
-            'venue' => $venue->loadCount([
-                'tables as table_count' => function ($q) {
-                    $q->where('is_active', true);
-                },
-            ]),
+            'venue' => $this->serializeVenue($venue, true),
         ]);
     }
 
@@ -369,7 +396,7 @@ class VenueController extends Controller
                 VenueTable::create([
                     'venue_id' => $venue->id,
                     'seating_area_id' => null,
-                    'name' => 'Table ' . $i,
+                    VenueTable::labelColumn() => 'Table ' . $i,
                     'capacity' => 4,
                     'is_active' => true,
                 ]);
@@ -428,5 +455,208 @@ class VenueController extends Controller
         }
 
         return $urls;
+    }
+
+    private function venueSelectColumns(): array
+    {
+        $columns = [
+            'id',
+            'name',
+            'type',
+            'description',
+            'address_text',
+            'lat',
+            'lng',
+            'is_active',
+            'phone',
+        ];
+
+        if ($this->hasInlineVenueArrays()) {
+            $columns[] = 'amenities';
+            $columns[] = 'image_urls';
+            $columns[] = 'offers';
+        }
+
+        return $columns;
+    }
+
+    private function venueRelations(): array
+    {
+        if (! $this->hasStructuredVenueData()) {
+            return [];
+        }
+
+        return [
+            'images:id,venue_id,url,sort_order',
+            'offersRelation:id,venue_id,title,description,image_url,is_active,start_at,end_at',
+            'amenitiesRelation:id,name',
+        ];
+    }
+
+    private function applyVenueRelations($query): void
+    {
+        $relations = $this->venueRelations();
+        if (! empty($relations)) {
+            $query->with($relations);
+        }
+    }
+
+    private function reloadVenueForResponse(int $venueId): Venue
+    {
+        $query = Venue::query()->select($this->venueSelectColumns());
+        $this->applyVenueRelations($query);
+
+        return $query->findOrFail($venueId);
+    }
+
+    private function serializeVenue(Venue $venue, bool $includeAdminFields = false): array
+    {
+        $data = [
+            'id' => $venue->id,
+            'name' => $venue->name,
+            'type' => $venue->type,
+            'description' => $venue->description,
+            'address_text' => $venue->address_text,
+            'lat' => $venue->lat,
+            'lng' => $venue->lng,
+            'phone' => $venue->phone,
+            'is_active' => (bool) $venue->is_active,
+            'amenities' => $this->resolveAmenities($venue),
+            'image_urls' => $this->resolveImageUrls($venue),
+            'offers' => $this->resolveOffers($venue),
+        ];
+
+        if ($includeAdminFields) {
+            $ownerColumn = Venue::ownerColumn();
+            $data['vendor_id'] = $venue->vendor_id ?? $venue->{$ownerColumn} ?? null;
+            $data['table_count'] = $venue->table_count ?? null;
+        }
+
+        return $data;
+    }
+
+    private function resolveAmenities(Venue $venue): array
+    {
+        if ($this->hasInlineVenueArrays()) {
+            return is_array($venue->amenities) ? $venue->amenities : [];
+        }
+
+        if ($this->hasStructuredVenueData()) {
+            return ($venue->amenitiesRelation ?? collect())
+                ->pluck('name')
+                ->values()
+                ->all();
+        }
+
+        return [];
+    }
+
+    private function resolveImageUrls(Venue $venue): array
+    {
+        if ($this->hasInlineVenueArrays()) {
+            return is_array($venue->image_urls) ? $venue->image_urls : [];
+        }
+
+        if ($this->hasStructuredVenueData()) {
+            return ($venue->images ?? collect())
+                ->sortBy('sort_order')
+                ->pluck('url')
+                ->values()
+                ->all();
+        }
+
+        return [];
+    }
+
+    private function resolveOffers(Venue $venue): array
+    {
+        if ($this->hasInlineVenueArrays()) {
+            return is_array($venue->offers) ? $venue->offers : [];
+        }
+
+        if ($this->hasStructuredVenueData()) {
+            return ($venue->offersRelation ?? collect())
+                ->map(fn (Offer $offer) => [
+                    'title' => $offer->title,
+                    'description' => $offer->description,
+                    'image_url' => $offer->image_url,
+                    'is_active' => (bool) $offer->is_active,
+                ])
+                ->values()
+                ->all();
+        }
+
+        return [];
+    }
+
+    private function hasInlineVenueArrays(): bool
+    {
+        return Schema::hasColumn('venues', 'amenities')
+            && Schema::hasColumn('venues', 'image_urls')
+            && Schema::hasColumn('venues', 'offers');
+    }
+
+    private function hasStructuredVenueData(): bool
+    {
+        return Schema::hasTable('venue_images')
+            && Schema::hasTable('offers')
+            && Schema::hasTable('venue_amenities')
+            && Schema::hasTable('amenities');
+    }
+
+    private function inlineVenuePayload(array $amenities, array $imageUrls, array $offers): array
+    {
+        if (! $this->hasInlineVenueArrays()) {
+            return [];
+        }
+
+        return [
+            'amenities' => $amenities,
+            'image_urls' => $imageUrls,
+            'offers' => $offers,
+        ];
+    }
+
+    private function syncStructuredVenueData(Venue $venue, ?array $amenities, ?array $imageUrls, ?array $offers): void
+    {
+        if (! $this->hasStructuredVenueData()) {
+            return;
+        }
+
+        if ($amenities !== null) {
+            $amenityIds = collect($amenities)
+                ->map(fn ($name) => trim((string) $name))
+                ->filter(fn ($name) => $name !== '')
+                ->map(fn ($name) => Amenity::firstOrCreate(['name' => $name])->id)
+                ->values()
+                ->all();
+            $venue->amenitiesRelation()->sync($amenityIds);
+        }
+
+        if ($imageUrls !== null) {
+            VenueImage::query()->where('venue_id', $venue->id)->delete();
+            foreach (array_values($imageUrls) as $index => $url) {
+                VenueImage::create([
+                    'venue_id' => $venue->id,
+                    'url' => $url,
+                    'sort_order' => $index,
+                ]);
+            }
+        }
+
+        if ($offers !== null) {
+            Offer::query()->where('venue_id', $venue->id)->delete();
+            foreach ($offers as $offer) {
+                Offer::create([
+                    'venue_id' => $venue->id,
+                    'title' => $offer['title'],
+                    'description' => $offer['description'] ?: null,
+                    'image_url' => $offer['image_url'] ?: null,
+                    'is_active' => $offer['is_active'] ?? true,
+                    'start_at' => now(),
+                    'end_at' => now()->addDays(30),
+                ]);
+            }
+        }
     }
 }
