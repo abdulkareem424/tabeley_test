@@ -30,7 +30,7 @@ class ReservationController extends Controller
 
         $query = Reservation::query()
             ->whereHas('venue', function ($q) use ($request) {
-                $q->where('vendor_id', $request->user()->id);
+                $q->where(Venue::ownerColumn(), $request->user()->id);
             })
             ->with([
                 'venue:id,name,type,address_text',
@@ -86,7 +86,7 @@ class ReservationController extends Controller
                 $reservation = Reservation::query()
                     ->where('id', $id)
                     ->whereHas('venue', function ($q) use ($request) {
-                        $q->where('vendor_id', $request->user()->id);
+                        $q->where(Venue::ownerColumn(), $request->user()->id);
                     })
                     ->lockForUpdate()
                     ->first();
@@ -225,7 +225,7 @@ class ReservationController extends Controller
     {
         return Reservation::query()
             ->whereHas('venue', function ($q) use ($request) {
-                $q->where('vendor_id', $request->user()->id);
+                $q->where(Venue::ownerColumn(), $request->user()->id);
             })
             ->find($id);
     }

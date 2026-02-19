@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Facades\Schema;
 use App\Models\Reservation;
 use App\Models\SeatingArea;
 use App\Models\VenueTable;
@@ -11,9 +12,11 @@ use App\Models\VenueTable;
 class Venue extends Model
 {
     use HasFactory;
+    protected static ?string $resolvedOwnerColumn = null;
 
     protected $fillable = [
         'vendor_id',
+        'owner_user_id',
         'name',
         'type',
         'description',
@@ -34,9 +37,33 @@ class Venue extends Model
         'offers' => 'array',
     ];
 
+    public static function ownerColumn(): string
+    {
+        if (self::$resolvedOwnerColumn !== null) {
+            return self::$resolvedOwnerColumn;
+        }
+
+        self::$resolvedOwnerColumn = Schema::hasColumn('venues', 'vendor_id')
+            ? 'vendor_id'
+            : 'owner_user_id';
+
+        return self::$resolvedOwnerColumn;
+    }
+
+    public function setVendorIdAttribute($value): void
+    {
+        $this->attributes[self::ownerColumn()] = $value;
+    }
+
+    public function getVendorIdAttribute()
+    {
+        $column = self::ownerColumn();
+        return $this->attributes[$column] ?? null;
+    }
+
     public function vendor()
     {
-        return $this->belongsTo(User::class, 'vendor_id');
+        return $this->belongsTo(User::class, self::ownerColumn());
     }
 
     public function reservations()

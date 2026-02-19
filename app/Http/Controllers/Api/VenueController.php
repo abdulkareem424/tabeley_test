@@ -90,6 +90,7 @@ class VenueController extends Controller
     public function store(Request $request)
     {
         $user = $request->user();
+        $ownerColumn = Venue::ownerColumn();
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -111,7 +112,7 @@ class VenueController extends Controller
         ]);
 
         $venue = Venue::create([
-            'vendor_id' => $user->id,
+            $ownerColumn => $user->id,
             'name' => $validated['name'],
             'type' => $validated['type'],
             'description' => $validated['description'] ?? null,
@@ -134,6 +135,7 @@ class VenueController extends Controller
     // LIST VENUES (admin)
     public function adminIndex(Request $request)
     {
+        $ownerColumn = Venue::ownerColumn();
         $validated = $request->validate([
             'search' => 'nullable|string|max:255',
             'per_page' => 'nullable|integer|min:1|max:100',
@@ -142,7 +144,7 @@ class VenueController extends Controller
         $query = Venue::query()
             ->select([
                 'id',
-                'vendor_id',
+                DB::raw($ownerColumn . ' as vendor_id'),
                 'name',
                 'type',
                 'description',
@@ -240,11 +242,12 @@ class VenueController extends Controller
 
         $venue = null;
         DB::transaction(function () use ($validated, $vendorId, &$venue, $request) {
+            $ownerColumn = Venue::ownerColumn();
             $imageUrls = $validated['image_urls'] ?? [];
             $imageUrls = $this->appendUploadedImages($request, $imageUrls);
 
             $venue = Venue::create([
-                'vendor_id' => $vendorId,
+                $ownerColumn => $vendorId,
                 'name' => $validated['name'],
                 'type' => $validated['type'],
                 'description' => $validated['description'] ?? null,

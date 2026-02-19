@@ -66,7 +66,7 @@ class User extends Authenticatable
 
     public function venues()
     {
-        return $this->hasMany(Venue::class, 'vendor_id');
+        return $this->hasMany(Venue::class, Venue::ownerColumn());
     }
 
     public function reservations()
