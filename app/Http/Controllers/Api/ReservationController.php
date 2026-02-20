@@ -451,7 +451,7 @@ class ReservationController extends Controller
         $tableIds = $tables->pluck('id')->all();
 
         $assignedQuery = ReservationTableAssignment::query()
-            ->whereIn('venue_table_id', $tableIds)
+            ->whereIn(ReservationTableAssignment::tableForeignKey(), $tableIds)
             ->whereHas('reservation', function ($q) use ($reservation, $includePending) {
                 $statuses = ['approved', 'completed'];
                 if ($includePending) {
